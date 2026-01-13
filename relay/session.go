@@ -36,6 +36,7 @@ type Session struct {
 	FailedAttempts  int    // Rate limiting: failed password attempts
 	LastAttemptTime time.Time // Rate limiting: time of last attempt
 	PendingReqs     map[string]*PendingRequest
+	ViewerSockets   map[*websocket.Conn]bool // Connected viewer WebSockets for live updates
 	mu              sync.Mutex
 }
 
@@ -181,13 +182,14 @@ func (s *SessionStore) CreateSessionWithPassword(ws *websocket.Conn, expiresAt t
 	}
 
 	session := &Session{
-		ID:           id,
-		WebSocket:    ws,
-		ExpiresAt:    expiresAt,
-		ViewerCount:  0,
-		MaxViewers:   3,
-		PasswordHash: passwordHash,
-		PendingReqs:  make(map[string]*PendingRequest),
+		ID:            id,
+		WebSocket:     ws,
+		ExpiresAt:     expiresAt,
+		ViewerCount:   0,
+		MaxViewers:    3,
+		PasswordHash:  passwordHash,
+		PendingReqs:   make(map[string]*PendingRequest),
+		ViewerSockets: make(map[*websocket.Conn]bool),
 	}
 
 	s.mu.Lock()
@@ -365,4 +367,25 @@ func (s *SessionStore) SessionExists(id string) bool {
 	_, exists := s.sessions[id]
 	s.mu.RUnlock()
 	return exists
+}
+
+// BroadcastViewerCount sends updated viewer count to all connected viewer WebSockets
+func (s *SessionStore) BroadcastViewerCount(sessionID string) {
+	session := s.GetSession(sessionID)
+	if session == nil {
+		return
+	}
+
+	session.mu.Lock()
+	viewerCount := len(session.ViewerSockets)
+	sockets := make([]*websocket.Conn, 0, len(session.ViewerSockets))
+	for conn := range session.ViewerSockets {
+		sockets = append(sockets, conn)
+	}
+	session.mu.Unlock()
+
+	msg := fmt.Sprintf(`{"type":"viewerCount","count":%d}`, viewerCount)
+	for _, conn := range sockets {
+		conn.WriteMessage(1, []byte(msg)) // 1 = TextMessage
+	}
 }

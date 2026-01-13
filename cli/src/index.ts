@@ -142,8 +142,8 @@ Default excludes (always applied):
   ${DEFAULT_EXCLUDES.join(', ')}
 
 Limits:
-  • Max total size: 500 MB
-  • Max file size: 100 MB
+  • Max total size: 100 MB
+  • Max file size: 50 MB
   • Session duration: 1-120 minutes (default: 30)
   • Concurrent viewers: 3
 
@@ -220,7 +220,7 @@ async function runShare(dirPath: string, options: CliOptions): Promise<void> {
   // Step 4: Connect to relay server
   console.log(`Connecting to relay server...`);
   
-  const expiresAt = Date.now() + durationMs;
+  const expiresAt = Math.floor((Date.now() + durationMs) / 1000); // Unix timestamp in seconds
   
   const config: TunnelClientConfig = {
     relayUrl: options.relay,

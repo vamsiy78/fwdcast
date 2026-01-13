@@ -24,6 +24,7 @@ func main() {
 
 	// Register routes
 	http.HandleFunc("/ws", handlers.HandleWebSocket)
+	http.HandleFunc("/viewer-ws/", handlers.HandleViewerWebSocket)
 	http.HandleFunc("/", handlers.HandleViewerRequest)
 
 	fmt.Printf("fwdcast Relay Server starting on %s\n", port)

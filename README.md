@@ -121,8 +121,8 @@ While sharing, fwdcast shows real-time statistics:
 
 | Limit | Value |
 |-------|-------|
-| Maximum total size | 500 MB |
-| Maximum file size | 100 MB per file |
+| Maximum total size | 100 MB |
+| Maximum file size | 50 MB per file |
 | Session duration | 1-120 minutes (default: 30) |
 | Concurrent viewers | 3 |
 

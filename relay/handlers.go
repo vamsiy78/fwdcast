@@ -741,3 +741,64 @@ func (h *Handlers) handleEndMessage(session *Session, msg *EndMessage) {
 	// Signal that the request is complete
 	close(pendingReq.Done)
 }
+
+// ============================================================================
+// Viewer WebSocket Handler for Live Updates
+// ============================================================================
+
+// HandleViewerWebSocket handles WebSocket connections from browser viewers for live updates
+func (h *Handlers) HandleViewerWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Parse session ID from URL path: /viewer-ws/{sessionId}
+	path := strings.TrimPrefix(r.URL.Path, "/viewer-ws/")
+	sessionID := strings.TrimSuffix(path, "/")
+	
+	if sessionID == "" {
+		http.Error(w, "Session ID required", http.StatusBadRequest)
+		return
+	}
+
+	// Look up session
+	session := h.store.GetSession(sessionID)
+	if session == nil {
+		http.Error(w, "Session not found", http.StatusNotFound)
+		return
+	}
+
+	// Upgrade to WebSocket
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("Viewer WebSocket upgrade failed: %v", err)
+		return
+	}
+
+	// Add to session's viewer sockets
+	session.mu.Lock()
+	session.ViewerSockets[conn] = true
+	viewerCount := len(session.ViewerSockets)
+	expiresAt := session.ExpiresAt.Unix()
+	session.mu.Unlock()
+
+	// Send initial state
+	initialMsg := fmt.Sprintf(`{"type":"init","viewerCount":%d,"expiresAt":%d}`, viewerCount, expiresAt)
+	conn.WriteMessage(websocket.TextMessage, []byte(initialMsg))
+
+	// Broadcast updated viewer count to all viewers
+	h.store.BroadcastViewerCount(sessionID)
+
+	// Keep connection alive and handle cleanup
+	defer func() {
+		session.mu.Lock()
+		delete(session.ViewerSockets, conn)
+		session.mu.Unlock()
+		conn.Close()
+		h.store.BroadcastViewerCount(sessionID)
+	}()
+
+	// Read messages (mainly for ping/pong and detecting disconnect)
+	for {
+		_, _, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+	}
+}
