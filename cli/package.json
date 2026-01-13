@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "fwdcast": "./dist/index.js"
+    "fwdcast": "dist/index.js"
   },
   "files": [
     "dist/**/*",
@@ -35,7 +35,7 @@
   "author": "vamsiy",
   "repository": {
     "type": "git",
-    "url": "https://github.com/vamsiy78/fwdcast"
+    "url": "git+https://github.com/vamsiy78/fwdcast.git"
   },
   "homepage": "https://github.com/vamsiy78/fwdcast#readme",
   "bugs": {
