@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // ============================================================================
@@ -26,14 +27,16 @@ type PendingRequest struct {
 // Session represents an active CLI connection and its associated state
 // Requirements: 2.1, 2.2
 type Session struct {
-	ID          string
-	WebSocket   *websocket.Conn
-	ExpiresAt   time.Time
-	ViewerCount int
-	MaxViewers  int
-	Password    string // Optional password for authentication
-	PendingReqs map[string]*PendingRequest
-	mu          sync.Mutex
+	ID              string
+	WebSocket       *websocket.Conn
+	ExpiresAt       time.Time
+	ViewerCount     int
+	MaxViewers      int
+	PasswordHash    []byte // bcrypt hash of password (empty if no password)
+	FailedAttempts  int    // Rate limiting: failed password attempts
+	LastAttemptTime time.Time // Rate limiting: time of last attempt
+	PendingReqs     map[string]*PendingRequest
+	mu              sync.Mutex
 }
 
 // SessionStore manages all active sessions in-memory
@@ -168,14 +171,23 @@ func (s *SessionStore) CreateSessionWithPassword(ws *websocket.Conn, expiresAt t
 		return nil, fmt.Errorf("failed to generate session ID: %w", err)
 	}
 
+	var passwordHash []byte
+	if password != "" {
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			return nil, fmt.Errorf("failed to hash password: %w", err)
+		}
+		passwordHash = hash
+	}
+
 	session := &Session{
-		ID:          id,
-		WebSocket:   ws,
-		ExpiresAt:   expiresAt,
-		ViewerCount: 0,
-		MaxViewers:  3,
-		Password:    password,
-		PendingReqs: make(map[string]*PendingRequest),
+		ID:           id,
+		WebSocket:    ws,
+		ExpiresAt:    expiresAt,
+		ViewerCount:  0,
+		MaxViewers:   3,
+		PasswordHash: passwordHash,
+		PendingReqs:  make(map[string]*PendingRequest),
 	}
 
 	s.mu.Lock()

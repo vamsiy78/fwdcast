@@ -190,12 +190,16 @@ See [relay/deploy/README.md](relay/deploy/README.md) for production deployment.
 ## Security Considerations
 
 - **Password protection** - Add `-p` flag to require authentication
+- **Passwords hashed** - Passwords are hashed with bcrypt, never stored in plain text
+- **Rate limiting** - 5 failed password attempts triggers a 30-second lockout
 - **Temporary by design** - Sessions auto-expire, reducing exposure window
 - **No persistence** - Nothing is stored on the relay server
 - **Path traversal protection** - CLI validates all file paths
 - **Default excludes** - Sensitive files like `.env` are excluded by default
+- **Secure cookies** - HttpOnly, Secure, SameSite flags enabled
+- **Minimal logging** - No session IDs, URLs, or passwords in server logs
 
-**⚠️ Warning**: Without a password, anyone with your session URL can access your shared files.
+**Warning**: Without a password, anyone with your session URL can access your shared files.
 
 ## Contributing
 

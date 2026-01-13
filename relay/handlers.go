@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // ============================================================================
@@ -91,10 +92,10 @@ func (h *Handlers) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Register message received: path=%s, expiresAt=%d, password=%s", registerMsg.Path, registerMsg.ExpiresAt, registerMsg.Password)
-
 	// Calculate expiry time from the provided timestamp
 	expiresAt := time.Unix(registerMsg.ExpiresAt, 0)
+
+	log.Printf("Session registered: hasPassword=%v, expiresIn=%v", registerMsg.Password != "", time.Until(expiresAt).Round(time.Minute))
 
 	// Create a new session with password if provided
 	session, err := h.store.CreateSessionWithPassword(conn, expiresAt, registerMsg.Password)
@@ -124,7 +125,7 @@ func (h *Handlers) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Session created: %s, URL: %s", session.ID, url)
+	log.Printf("Session active, URL provided")
 
 	// Start listening for messages from CLI (response, data, end messages)
 	go h.handleCLIMessages(session)
@@ -133,7 +134,7 @@ func (h *Handlers) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 // handleCLIMessages listens for messages from the CLI and routes them appropriately
 func (h *Handlers) handleCLIMessages(session *Session) {
 	defer func() {
-		log.Printf("CLI disconnected, removing session: %s", session.ID)
+		log.Printf("Session ended")
 		h.store.RemoveSession(session.ID)
 	}()
 
@@ -206,7 +207,7 @@ func (h *Handlers) HandleViewerRequest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check password authentication if session is password protected
-	if session.Password != "" {
+	if len(session.PasswordHash) > 0 {
 		// Check for __auth__ path - serve login page or handle auth
 		if strings.HasPrefix(resourcePath, "/__auth__") {
 			h.handleAuth(w, r, session, resourcePath)
@@ -215,8 +216,7 @@ func (h *Handlers) HandleViewerRequest(w http.ResponseWriter, r *http.Request) {
 
 		// Check for auth cookie
 		cookie, err := r.Cookie("fwdcast_auth_" + sessionID)
-		log.Printf("Cookie check: session=%s, cookie=%v, err=%v", sessionID, cookie, err)
-		if err != nil || cookie.Value != session.Password {
+		if err != nil || bcrypt.CompareHashAndPassword(session.PasswordHash, []byte(cookie.Value)) != nil {
 			// Redirect to auth page - use the current path as redirect target
 			currentPath := "/" + sessionID + "/"
 			if resourcePath != "/" {
@@ -226,7 +226,6 @@ func (h *Handlers) HandleViewerRequest(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, redirectURL, http.StatusFound)
 			return
 		}
-		log.Printf("Cookie valid, proceeding to serve files")
 	}
 
 	// Check viewer limit
@@ -399,16 +398,33 @@ func (h *Handlers) handleAuth(w http.ResponseWriter, r *http.Request, session *S
 		redirect = "/" + session.ID + "/"
 	}
 
-	log.Printf("Auth request: method=%s, session=%s, redirect=%s, hasPassword=%v", r.Method, session.ID, redirect, session.Password != "")
-
 	// Handle POST - verify password
 	if r.Method == "POST" {
 		r.ParseForm()
 		password := r.FormValue("password")
-		log.Printf("Password attempt: entered=%s, expected=%s, match=%v", password, session.Password, password == session.Password)
 
-		if password == session.Password {
-			// Set auth cookie
+		// Rate limiting: check if too many failed attempts
+		session.mu.Lock()
+		if session.FailedAttempts >= 5 {
+			timeSinceLastAttempt := time.Since(session.LastAttemptTime)
+			if timeSinceLastAttempt < 30*time.Second {
+				session.mu.Unlock()
+				h.sendRateLimitPage(w, session.ID, redirect, 30-int(timeSinceLastAttempt.Seconds()))
+				return
+			}
+			// Reset after cooldown
+			session.FailedAttempts = 0
+		}
+		session.LastAttemptTime = time.Now()
+		session.mu.Unlock()
+
+		if bcrypt.CompareHashAndPassword(session.PasswordHash, []byte(password)) == nil {
+			// Reset failed attempts on success
+			session.mu.Lock()
+			session.FailedAttempts = 0
+			session.mu.Unlock()
+
+			// Set auth cookie with the password (will be verified against hash)
 			http.SetCookie(w, &http.Cookie{
 				Name:     "fwdcast_auth_" + session.ID,
 				Value:    password,
@@ -418,13 +434,15 @@ func (h *Handlers) handleAuth(w http.ResponseWriter, r *http.Request, session *S
 				Secure:   true,
 				SameSite: http.SameSiteLaxMode,
 			})
-			log.Printf("Password correct, redirecting to %s", redirect)
 			http.Redirect(w, r, redirect, http.StatusFound)
 			return
 		}
 
-		// Wrong password - show error
-		log.Printf("Password incorrect")
+		// Wrong password - increment failed attempts
+		session.mu.Lock()
+		session.FailedAttempts++
+		session.mu.Unlock()
+
 		h.sendAuthPage(w, session.ID, redirect, true)
 		return
 	}
@@ -547,6 +565,69 @@ func (h *Handlers) sendAuthPage(w http.ResponseWriter, sessionID, redirect strin
   </div>
 </body>
 </html>`, errorHTML, sessionID, redirect)
+
+	w.Write([]byte(html))
+}
+
+// sendRateLimitPage renders the rate limit page
+func (h *Handlers) sendRateLimitPage(w http.ResponseWriter, sessionID, redirect string, secondsRemaining int) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.WriteHeader(http.StatusTooManyRequests)
+
+	html := fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+  <title>Too Many Attempts - fwdcast</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="%d;url=/%s/__auth__?redirect=%s">
+  <style>
+    * { box-sizing: border-box; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+      background: #1e1e1e; 
+      margin: 0; 
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container { 
+      max-width: 400px; 
+      width: 100%%;
+      background: #2d2d2d; 
+      padding: 40px; 
+      border-radius: 8px; 
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      text-align: center;
+    }
+    .icon { font-size: 48px; margin-bottom: 20px; }
+    h1 { color: #e74c3c; margin: 0 0 8px 0; font-size: 24px; font-weight: 500; }
+    .subtitle { color: #858585; font-size: 14px; margin-bottom: 24px; }
+    .countdown { color: #cccccc; font-size: 32px; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">⏳</div>
+    <h1>Too Many Attempts</h1>
+    <p class="subtitle">Please wait before trying again</p>
+    <p class="countdown" id="countdown">%d</p>
+    <p class="subtitle">seconds remaining</p>
+  </div>
+  <script>
+    let seconds = %d;
+    const countdown = document.getElementById('countdown');
+    setInterval(() => {
+      if (seconds > 0) {
+        seconds--;
+        countdown.textContent = seconds;
+      }
+    }, 1000);
+  </script>
+</body>
+</html>`, secondsRemaining, sessionID, redirect, secondsRemaining, secondsRemaining)
 
 	w.Write([]byte(html))
 }
