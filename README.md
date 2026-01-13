@@ -4,6 +4,7 @@
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-green.svg)
+![npm](https://img.shields.io/npm/v/fwdcast.svg)
 
 ## What is fwdcast?
 
@@ -24,9 +25,11 @@ That's it. You get a URL, share it, and people can browse and download your file
 | 🎨 **VS Code-style UI** | Beautiful dark theme file browser |
 | 👁️ **File preview** | View text, code, and images in-browser |
 | 📥 **ZIP download** | Download entire directories with one click |
-| ⏱️ **Auto-expires** | Sessions expire after 30 minutes |
-| 🔄 **Live updates** | File changes reflect immediately on refresh |
-| 🔒 **Secure** | Files only accessible while CLI is running |
+| 🔒 **Password protection** | Secure your share with a password |
+| 📱 **QR code** | Easy mobile sharing with terminal QR code |
+| 📊 **Live stats** | View count and bandwidth in real-time |
+| ⏱️ **Custom duration** | Sessions from 1-120 minutes |
+| 🚫 **Exclude files** | Skip .git, node_modules, etc. |
 
 ## Installation
 
@@ -43,7 +46,7 @@ fwdcast
 
 ## Usage
 
-### Share current directory
+### Basic - Share current directory
 ```bash
 fwdcast
 ```
@@ -53,10 +56,43 @@ fwdcast
 fwdcast /path/to/folder
 ```
 
-### Use custom relay server
+### Password protect your share
 ```bash
-fwdcast --relay wss://your-relay.com/ws
+fwdcast -p mysecretpassword
 ```
+
+### Show QR code for mobile
+```bash
+fwdcast -q
+```
+
+### Custom session duration (60 minutes)
+```bash
+fwdcast -d 60
+```
+
+### Exclude additional files/folders
+```bash
+fwdcast -e .git node_modules dist
+```
+
+### Combine options
+```bash
+fwdcast ~/Documents -p secret123 -d 60 -q
+```
+
+## CLI Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-p, --password <pass>` | Require password to access | None |
+| `-d, --duration <mins>` | Session duration (1-120) | 30 |
+| `-q, --qr` | Show QR code in terminal | false |
+| `-e, --exclude <patterns>` | Exclude files/folders | See below |
+| `-r, --relay <url>` | Custom relay server | Public relay |
+
+### Default Excludes
+These are always excluded: `.git`, `node_modules`, `.DS_Store`, `__pycache__`, `.env`
 
 ## How It Works
 
@@ -71,32 +107,14 @@ fwdcast --relay wss://your-relay.com/ws
 2. **Get a URL** - Relay assigns a unique session URL
 3. **Share the URL** - Anyone with the link can browse your files
 4. **Files stream on-demand** - When someone requests a file, it streams from your machine
-5. **Session ends** - When you stop the CLI or after 30 minutes, files become inaccessible
+5. **Session ends** - When you stop the CLI or session expires, files become inaccessible
 
-## Current Capabilities
+## Live Stats
 
-### ✅ What fwdcast CAN do
-
-- Share any directory from your local machine
-- Serve files of any type (text, images, videos, binaries, etc.)
-- Display directory listings with a modern UI
-- Preview text files and images in-browser
-- Download individual files or entire directories as ZIP
-- Handle multiple concurrent viewers (up to 3)
-- Automatically detect and display file types with icons
-- Navigate through subdirectories
-- Reflect file content changes on browser refresh
-
-### ❌ What fwdcast CANNOT do (yet)
-
-- **No authentication** - Anyone with the URL can access files
-- **No selective sharing** - Shares entire directory (use a subfolder to limit)
-- **No upload** - Viewers cannot upload files to you
-- **No real-time sync** - Browser doesn't auto-refresh when files change
-- **No persistent URLs** - Each session gets a new random URL
-- **No file editing** - Read-only access for viewers
-- **No bandwidth control** - No throttling or rate limiting
-- **No analytics** - No tracking of who accessed what
+While sharing, fwdcast shows real-time statistics:
+```
+[2 viewers] Total: 15.3 MB | Requests: 42 | 1.2 MB/s
+```
 
 ## Limits
 
@@ -104,8 +122,31 @@ fwdcast --relay wss://your-relay.com/ws
 |-------|-------|
 | Maximum total size | 500 MB |
 | Maximum file size | 100 MB per file |
-| Session duration | 30 minutes |
+| Session duration | 1-120 minutes (default: 30) |
 | Concurrent viewers | 3 |
+
+## Current Capabilities
+
+### ✅ What fwdcast CAN do
+
+- Share any directory from your local machine
+- Password protect your shared files
+- Show QR code for easy mobile access
+- Display live viewer count and bandwidth stats
+- Exclude specific files/folders from sharing
+- Set custom session duration (1-120 minutes)
+- Serve files of any type (text, images, videos, binaries, etc.)
+- Display directory listings with a modern VS Code-style UI
+- Preview text files and images in-browser
+- Download individual files or entire directories as ZIP
+- Handle multiple concurrent viewers (up to 3)
+
+### ❌ What fwdcast CANNOT do (yet)
+
+- **No upload** - Viewers cannot upload files to you
+- **No real-time sync** - Browser doesn't auto-refresh when files change
+- **No persistent URLs** - Each session gets a new random URL
+- **No file editing** - Read-only access for viewers
 
 ## Project Structure
 
@@ -125,20 +166,12 @@ fwdcast/
     ├── main.go             # Server entry point
     ├── handlers.go         # HTTP/WebSocket handlers
     ├── session.go          # Session management
-    ├── protocol.go         # Message protocol
-    └── deploy/             # Deployment scripts
+    └── protocol.go         # Message protocol
 ```
 
 ## Self-Hosting the Relay Server
 
 You can run your own relay server for privacy or to remove limits.
-
-### Prerequisites
-- Go 1.21+
-- A server with public IP
-- (Optional) Domain with SSL certificate
-
-### Quick Start
 
 ```bash
 cd relay
@@ -146,51 +179,22 @@ go build -o fwdcast-relay
 ./fwdcast-relay
 ```
 
-The relay runs on port 8080 by default.
-
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `RELAY_HOST` | Hostname for generated URLs | `localhost:8080` |
-| `PUBLIC_BASE_URL` | Full base URL (for HTTPS) | `http://{RELAY_HOST}` |
-
-### Production Deployment with Caddy
-
-See [relay/deploy/README.md](relay/deploy/README.md) for full deployment instructions including:
-- Systemd service setup
-- Caddy reverse proxy with automatic HTTPS
-- GCP/AWS deployment guides
-
-## Development
-
-### CLI Development
-
+Then use your relay:
 ```bash
-cd cli
-npm install
-npm run dev         # Run in development mode
-npm test            # Run tests
-npm run build       # Build for production
+fwdcast --relay wss://your-server.com/ws
 ```
 
-### Relay Development
-
-```bash
-cd relay
-go run .            # Run server
-go test ./...       # Run tests
-go build            # Build binary
-```
+See [relay/deploy/README.md](relay/deploy/README.md) for production deployment.
 
 ## Security Considerations
 
+- **Password protection** - Add `-p` flag to require authentication
 - **Temporary by design** - Sessions auto-expire, reducing exposure window
 - **No persistence** - Nothing is stored on the relay server
 - **Path traversal protection** - CLI validates all file paths
-- **Session isolation** - Each session has a unique random ID
+- **Default excludes** - Sensitive files like `.env` are excluded by default
 
-**⚠️ Warning**: Anyone with your session URL can access your shared files. Only share URLs with trusted parties.
+**⚠️ Warning**: Without a password, anyone with your session URL can access your shared files.
 
 ## Contributing
 
@@ -199,11 +203,3 @@ Contributions are welcome! Please feel free to submit issues and pull requests.
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
-
-## Acknowledgments
-
-Built with:
-- [Commander.js](https://github.com/tj/commander.js) - CLI framework
-- [ws](https://github.com/websockets/ws) - WebSocket client
-- [Gorilla WebSocket](https://github.com/gorilla/websocket) - Go WebSocket server
-- [Archiver](https://github.com/archiverjs/node-archiver) - ZIP creation

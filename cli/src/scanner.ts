@@ -24,16 +24,35 @@ export interface ScanResult {
 }
 
 /**
+ * Check if a name matches any exclude pattern
+ */
+function matchesExcludePattern(name: string, excludePatterns: string[]): boolean {
+  for (const pattern of excludePatterns) {
+    // Simple glob matching: support * wildcard
+    if (pattern.includes('*')) {
+      const regex = new RegExp('^' + pattern.replace(/\*/g, '.*') + '$');
+      if (regex.test(name)) return true;
+    } else {
+      // Exact match
+      if (name === pattern) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Recursively scans a directory and returns all entries.
  * Symlinks are skipped.
  * 
  * @param dirPath - The directory path to scan
  * @param basePath - The base path for calculating relative paths (defaults to dirPath)
+ * @param excludePatterns - Array of patterns to exclude (e.g., ['.git', 'node_modules'])
  * @returns Array of DirectoryEntry objects
  */
 export async function scanDirectory(
   dirPath: string,
-  basePath?: string
+  basePath?: string,
+  excludePatterns: string[] = []
 ): Promise<DirectoryEntry[]> {
   const resolvedPath = path.resolve(dirPath);
   const resolvedBase = basePath ? path.resolve(basePath) : resolvedPath;
@@ -42,6 +61,11 @@ export async function scanDirectory(
   const items = await fs.readdir(resolvedPath, { withFileTypes: true });
 
   for (const item of items) {
+    // Skip excluded items
+    if (matchesExcludePattern(item.name, excludePatterns)) {
+      continue;
+    }
+    
     const absolutePath = path.join(resolvedPath, item.name);
     
     // Skip symlinks as per requirements
@@ -65,7 +89,7 @@ export async function scanDirectory(
 
     // Recursively scan subdirectories
     if (item.isDirectory()) {
-      const subEntries = await scanDirectory(absolutePath, resolvedBase);
+      const subEntries = await scanDirectory(absolutePath, resolvedBase, excludePatterns);
       entries.push(...subEntries);
     }
   }
@@ -107,11 +131,13 @@ export function calculateScanResult(entries: DirectoryEntry[]): ScanResult {
  * 
  * @param dirPath - The directory path to scan
  * @param basePath - The base path for calculating relative paths
+ * @param excludePatterns - Array of patterns to exclude
  * @returns Array of DirectoryEntry objects for immediate children only
  */
 export async function scanDirectoryShallow(
   dirPath: string,
-  basePath: string
+  basePath: string,
+  excludePatterns: string[] = []
 ): Promise<DirectoryEntry[]> {
   const resolvedPath = path.resolve(dirPath);
   const resolvedBase = path.resolve(basePath);
@@ -120,6 +146,11 @@ export async function scanDirectoryShallow(
   const items = await fs.readdir(resolvedPath, { withFileTypes: true });
 
   for (const item of items) {
+    // Skip excluded items
+    if (matchesExcludePattern(item.name, excludePatterns)) {
+      continue;
+    }
+    
     const absolutePath = path.join(resolvedPath, item.name);
     
     // Skip symlinks as per requirements
@@ -144,3 +175,6 @@ export async function scanDirectoryShallow(
 
   return entries;
 }
+
+// Export for testing
+export { matchesExcludePattern };

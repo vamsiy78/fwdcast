@@ -34,6 +34,16 @@ import { DirectoryEntry } from './scanner';
 import { generateDirectoryHtml } from './html-generator';
 
 /**
+ * Transfer statistics
+ */
+export interface TransferStats {
+  totalBytesSent: number;
+  requestCount: number;
+  activeViewers: number;
+  currentSpeed: number; // bytes per second
+}
+
+/**
  * Configuration for the tunnel client
  */
 export interface TunnelClientConfig {
@@ -41,7 +51,10 @@ export interface TunnelClientConfig {
   basePath: string;
   entries: DirectoryEntry[];
   expiresAt: number;
+  password?: string;
+  excludePatterns?: string[];
   onUrl?: (url: string) => void;
+  onStats?: (stats: TransferStats) => void;
   onExpired?: () => void;
   onDisconnect?: () => void;
   onError?: (error: Error) => void;
@@ -69,13 +82,106 @@ export class TunnelClient {
   private config: TunnelClientConfig;
   private connected: boolean = false;
   private sessionId: string | null = null;
+  private authenticatedTokens: Set<string> = new Set();
   private registrationPromise: {
     resolve: (result: RegistrationResult) => void;
     reject: (error: Error) => void;
   } | null = null;
+  
+  // Stats tracking
+  private stats: TransferStats = {
+    totalBytesSent: 0,
+    requestCount: 0,
+    activeViewers: 0,
+    currentSpeed: 0,
+  };
+  private activeRequests: Set<string> = new Set();
+  private recentBytes: { time: number; bytes: number }[] = [];
+  private statsInterval: NodeJS.Timeout | null = null;
 
   constructor(config: TunnelClientConfig) {
     this.config = config;
+  }
+
+  /**
+   * Track bytes sent for bandwidth stats
+   */
+  private trackBytesSent(bytes: number): void {
+    this.stats.totalBytesSent += bytes;
+    this.recentBytes.push({ time: Date.now(), bytes });
+    
+    // Keep only last 5 seconds of data
+    const cutoff = Date.now() - 5000;
+    this.recentBytes = this.recentBytes.filter(r => r.time > cutoff);
+    
+    // Calculate current speed
+    if (this.recentBytes.length > 0) {
+      const totalRecentBytes = this.recentBytes.reduce((sum, r) => sum + r.bytes, 0);
+      const timeSpan = (Date.now() - this.recentBytes[0].time) / 1000;
+      this.stats.currentSpeed = timeSpan > 0 ? totalRecentBytes / timeSpan : 0;
+    }
+  }
+
+  /**
+   * Start a request (track active viewers)
+   */
+  private startRequest(requestId: string): void {
+    if (!this.activeRequests.has(requestId)) {
+      this.activeRequests.add(requestId);
+      this.stats.activeViewers = this.activeRequests.size;
+      this.stats.requestCount++;
+      this.emitStats();
+    }
+  }
+
+  /**
+   * End a request (track active viewers)
+   */
+  private endRequest(requestId: string): void {
+    if (this.activeRequests.has(requestId)) {
+      this.activeRequests.delete(requestId);
+      this.stats.activeViewers = this.activeRequests.size;
+      this.emitStats();
+    }
+  }
+
+  /**
+   * Emit stats to callback
+   */
+  private emitStats(): void {
+    if (this.config.onStats) {
+      this.config.onStats({ ...this.stats });
+    }
+  }
+
+  /**
+   * Start periodic stats updates
+   */
+  private startStatsInterval(): void {
+    if (this.statsInterval) return;
+    this.statsInterval = setInterval(() => {
+      // Recalculate speed
+      const cutoff = Date.now() - 5000;
+      this.recentBytes = this.recentBytes.filter(r => r.time > cutoff);
+      if (this.recentBytes.length > 0) {
+        const totalRecentBytes = this.recentBytes.reduce((sum, r) => sum + r.bytes, 0);
+        const timeSpan = (Date.now() - this.recentBytes[0].time) / 1000;
+        this.stats.currentSpeed = timeSpan > 0 ? totalRecentBytes / timeSpan : 0;
+      } else {
+        this.stats.currentSpeed = 0;
+      }
+      this.emitStats();
+    }, 1000);
+  }
+
+  /**
+   * Stop stats interval
+   */
+  private stopStatsInterval(): void {
+    if (this.statsInterval) {
+      clearInterval(this.statsInterval);
+      this.statsInterval = null;
+    }
   }
 
   /**
@@ -133,6 +239,7 @@ export class TunnelClient {
    * Disconnect from the relay server
    */
   disconnect(): void {
+    this.stopStatsInterval();
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -201,6 +308,9 @@ export class TunnelClient {
     if (this.config.onUrl) {
       this.config.onUrl(message.url);
     }
+    
+    // Start stats interval
+    this.startStatsInterval();
   }
 
   /**
@@ -212,8 +322,30 @@ export class TunnelClient {
   private async handleRequest(message: RequestMessage): Promise<void> {
     const { id, method, path: requestPath } = message;
 
+    // Track this request
+    this.startRequest(id);
+
     // Normalize the request path
     const normalizedPath = this.normalizePath(requestPath);
+    
+    // Check for password authentication
+    if (this.config.password) {
+      // Check for auth token in query string
+      const authMatch = requestPath.match(/[?&]auth=([^&]+)/);
+      const authToken = authMatch ? authMatch[1] : null;
+      
+      // Handle login form submission
+      if (normalizedPath === '__auth__' || normalizedPath.endsWith('/__auth__')) {
+        await this.handleAuthRequest(id, requestPath);
+        return;
+      }
+      
+      // Check if authenticated
+      if (!authToken || !this.authenticatedTokens.has(authToken)) {
+        await this.serveLoginPage(id, normalizedPath);
+        return;
+      }
+    }
     
     // Check for special ZIP download request
     if (normalizedPath === '__download__.zip' || normalizedPath.endsWith('/__download__.zip')) {
@@ -252,6 +384,183 @@ export class TunnelClient {
         this.sendErrorResponse(id, 500, 'Internal Server Error');
       }
     }
+  }
+
+  /**
+   * Handle authentication request (password submission)
+   */
+  private async handleAuthRequest(requestId: string, requestPath: string): Promise<void> {
+    // Extract password from query string
+    const pwMatch = requestPath.match(/[?&]password=([^&]*)/);
+    const submittedPassword = pwMatch ? decodeURIComponent(pwMatch[1]) : '';
+    const redirectMatch = requestPath.match(/[?&]redirect=([^&]*)/);
+    const redirectPath = redirectMatch ? decodeURIComponent(redirectMatch[1]) : '/';
+    
+    if (submittedPassword === this.config.password) {
+      // Generate auth token
+      const authToken = this.generateAuthToken();
+      this.authenticatedTokens.add(authToken);
+      
+      // Redirect with auth token
+      const baseUrl = this.sessionId ? `/${this.sessionId}` : '';
+      const redirectUrl = `${baseUrl}${redirectPath.startsWith('/') ? redirectPath : '/' + redirectPath}?auth=${authToken}`;
+      
+      this.sendResponse(requestId, 302, {
+        'Location': redirectUrl,
+        'Content-Type': 'text/html',
+        'Content-Length': '0',
+      });
+      this.sendEnd(requestId);
+    } else {
+      // Wrong password - show login page with error
+      await this.serveLoginPage(requestId, redirectPath, true);
+    }
+  }
+
+  /**
+   * Generate a random auth token
+   */
+  private generateAuthToken(): string {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let token = '';
+    for (let i = 0; i < 32; i++) {
+      token += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return token;
+  }
+
+  /**
+   * Serve the login page for password-protected shares
+   */
+  private async serveLoginPage(requestId: string, redirectPath: string, showError: boolean = false): Promise<void> {
+    const baseUrl = this.sessionId ? `/${this.sessionId}` : '';
+    const html = this.generateLoginHtml(baseUrl, redirectPath, showError);
+    const htmlBuffer = Buffer.from(html, 'utf-8');
+
+    this.sendResponse(requestId, 200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Length': htmlBuffer.length.toString(),
+    });
+    this.sendData(requestId, htmlBuffer);
+    this.sendEnd(requestId);
+  }
+
+  /**
+   * Generate login page HTML
+   */
+  private generateLoginHtml(baseUrl: string, redirectPath: string, showError: boolean): string {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>fwdcast - Password Required</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #1e1e1e;
+      color: #cccccc;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .login-box {
+      background: #252526;
+      padding: 40px;
+      border-radius: 8px;
+      width: 100%;
+      max-width: 360px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+    .logo {
+      text-align: center;
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+    h1 {
+      text-align: center;
+      font-size: 20px;
+      font-weight: 400;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      text-align: center;
+      color: #858585;
+      font-size: 13px;
+      margin-bottom: 24px;
+    }
+    .error {
+      background: #5a1d1d;
+      color: #f48771;
+      padding: 10px 14px;
+      border-radius: 4px;
+      margin-bottom: 16px;
+      font-size: 13px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      color: #858585;
+      margin-bottom: 6px;
+    }
+    input[type="password"] {
+      width: 100%;
+      padding: 10px 12px;
+      background: #3c3c3c;
+      border: 1px solid #3c3c3c;
+      border-radius: 4px;
+      color: #cccccc;
+      font-size: 14px;
+      margin-bottom: 20px;
+    }
+    input[type="password"]:focus {
+      outline: none;
+      border-color: #007acc;
+    }
+    button {
+      width: 100%;
+      padding: 10px;
+      background: #007acc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #0098ff;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-box">
+    <div class="logo">🔒</div>
+    <h1>Password Required</h1>
+    <p class="subtitle">This share is password protected</p>
+    ${showError ? '<div class="error">Incorrect password. Please try again.</div>' : ''}
+    <form method="GET" action="${baseUrl}/__auth__">
+      <input type="hidden" name="redirect" value="${this.escapeHtml(redirectPath)}">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" autofocus required>
+      <button type="submit">Access Files</button>
+    </form>
+  </div>
+</body>
+</html>`;
+  }
+
+  /**
+   * Escape HTML special characters
+   */
+  private escapeHtml(str: string): string {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 
   /**
@@ -322,7 +631,8 @@ export class TunnelClient {
     try {
       // Dynamically scan the directory for current contents
       const absoluteDirPath = path.join(this.config.basePath, dirPath);
-      const children = await scanDirectoryShallow(absoluteDirPath, this.config.basePath);
+      const excludePatterns = this.config.excludePatterns || [];
+      const children = await scanDirectoryShallow(absoluteDirPath, this.config.basePath, excludePatterns);
       
       // Generate HTML with session ID for correct links
       const html = generateDirectoryHtml(children, dirPath, this.sessionId || undefined);
@@ -436,6 +746,7 @@ export class TunnelClient {
   sendData(id: string, chunk: Buffer): void {
     const message = createDataMessage(id, chunk.toString('base64'));
     this.send(message);
+    this.trackBytesSent(chunk.length);
   }
 
   /**
@@ -445,6 +756,7 @@ export class TunnelClient {
   sendEnd(id: string): void {
     const message = createEndMessage(id);
     this.send(message);
+    this.endRequest(id);
   }
 
   /**
