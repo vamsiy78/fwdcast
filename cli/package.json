@@ -1,6 +1,6 @@
 {
   "name": "fwdcast",
-  "version": "1.2.12",
+  "version": "1.2.14",
   "description": "Temporary file sharing - stream local files as a public website without uploading",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

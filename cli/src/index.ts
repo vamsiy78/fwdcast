@@ -121,7 +121,7 @@ async function main(): Promise<void> {
   program
     .name('fwdcast')
     .description('Temporary file sharing - stream local files as a public website without uploading')
-    .version('1.2.12')
+    .version('1.2.14')
     .argument('[path]', 'Directory to share (default: current directory)', '.')
     .option('-r, --relay <url>', 'Custom relay server URL', DEFAULT_RELAY_URL)
     .option('-p, --password <password>', 'Require password to access files')
