@@ -49,10 +49,25 @@ async function main(): Promise<void> {
 
   program
     .name('fwdcast')
-    .description('Temporary file sharing - stream local files as a public website')
+    .description('Temporary file sharing - stream local files as a public website without uploading')
     .version('1.0.0')
-    .argument('[path]', 'Directory to share', '.')
+    .argument('[path]', 'Directory to share (default: current directory)', '.')
     .option('-r, --relay <url>', 'Custom relay server URL', DEFAULT_RELAY_URL)
+    .addHelpText('after', `
+Examples:
+  $ fwdcast                    Share current directory
+  $ fwdcast .                  Share current directory  
+  $ fwdcast ~/Downloads        Share Downloads folder
+  $ fwdcast ./project          Share a specific folder
+
+Limits:
+  • Max total size: 500 MB
+  • Max file size: 100 MB
+  • Session duration: 30 minutes
+  • Concurrent viewers: 3
+
+More info: https://github.com/vamsiy78/fwdcast
+`)
     .action(async (dirPath: string, options: { relay: string }) => {
       await runShare(dirPath, options.relay);
     });
