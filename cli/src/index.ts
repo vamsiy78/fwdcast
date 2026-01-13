@@ -127,7 +127,7 @@ async function main(): Promise<void> {
     .option('-p, --password <password>', 'Require password to access files')
     .option('-e, --exclude <patterns...>', 'Exclude files/folders matching patterns (e.g., -e .git node_modules)')
     .option('-d, --duration <minutes>', 'Session duration in minutes (1-120)', String(DEFAULT_DURATION_MINUTES))
-    .option('-q, --qr', 'Show QR code for easy mobile sharing', false)
+    .option('-q, --qr', 'Show QR code for easy mobile sharing', true)
     .addHelpText('after', `
 Examples:
   $ fwdcast                              Share current directory
@@ -135,7 +135,7 @@ Examples:
   $ fwdcast -p secret123                 Password protect the share
   $ fwdcast -e .git node_modules         Exclude .git and node_modules
   $ fwdcast -d 60                        Session lasts 60 minutes
-  $ fwdcast -q                           Show QR code for mobile
+  $ fwdcast --no-qr                      Hide QR code (shown by default)
   $ fwdcast -p mypass -d 120 -e .git     Combine options
 
 Default excludes (always applied):

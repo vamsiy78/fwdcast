@@ -388,8 +388,166 @@ export function generateDirectoryHtml(
     ::-webkit-scrollbar-thumb { background: #424242; border-radius: 5px; }
     ::-webkit-scrollbar-thumb:hover { background: #555; }
     
+    /* Mobile Menu Toggle */
+    .mobile-menu-toggle {
+      display: none;
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      width: 56px;
+      height: 56px;
+      background: var(--text-accent);
+      border-radius: 50%;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .mobile-menu-toggle:active {
+      transform: scale(0.95);
+    }
+    
+    /* Mobile Responsive */
     @media (max-width: 768px) {
-      .activitybar, .sidebar { display: none; }
+      body {
+        font-size: 14px;
+      }
+      
+      .titlebar {
+        font-size: 13px;
+        padding: 0 8px;
+      }
+      
+      .activitybar {
+        display: none;
+      }
+      
+      .sidebar {
+        position: fixed;
+        left: 0;
+        top: 30px;
+        bottom: 22px;
+        width: 85%;
+        max-width: 320px;
+        z-index: 999;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+        box-shadow: 2px 0 8px rgba(0,0,0,0.3);
+      }
+      
+      .sidebar.open {
+        transform: translateX(0);
+      }
+      
+      .mobile-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 998;
+      }
+      
+      .mobile-overlay.open {
+        display: block;
+      }
+      
+      .mobile-menu-toggle {
+        display: flex;
+      }
+      
+      .editor-area {
+        width: 100%;
+      }
+      
+      .tabs {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+      
+      .tab {
+        padding: 10px 12px;
+        font-size: 13px;
+        white-space: nowrap;
+      }
+      
+      .breadcrumb-bar {
+        font-size: 11px;
+        padding: 6px 8px;
+        overflow-x: auto;
+        white-space: nowrap;
+        -webkit-overflow-scrolling: touch;
+      }
+      
+      .welcome {
+        padding: 20px;
+      }
+      
+      .welcome h2 {
+        font-size: 20px;
+      }
+      
+      .preview-text {
+        padding: 12px;
+        font-size: 12px;
+      }
+      
+      .preview-image {
+        padding: 12px;
+      }
+      
+      .tree-item {
+        padding: 8px 12px;
+        font-size: 14px;
+      }
+      
+      .tree-icon {
+        width: 20px;
+        font-size: 16px;
+      }
+      
+      .statusbar {
+        font-size: 11px;
+        padding: 0 8px;
+      }
+      
+      .statusbar-item {
+        margin-right: 12px;
+      }
+      
+      .download-btn {
+        padding: 12px 24px;
+        font-size: 15px;
+        touch-action: manipulation;
+      }
+      
+      .sidebar-header {
+        padding: 12px 16px;
+      }
+      
+      .download-all-btn {
+        font-size: 18px;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .titlebar-title {
+        font-size: 11px;
+      }
+      
+      .sidebar {
+        width: 90%;
+      }
+      
+      .tree-size {
+        display: none;
+      }
     }
   </style>
 </head>
@@ -399,12 +557,14 @@ export function generateDirectoryHtml(
       <span class="titlebar-title">fwdcast - ${escapeHtml(displayPath)}</span>
     </div>
     
+    <div class="mobile-overlay" id="mobileOverlay"></div>
+    
     <div class="main">
       <div class="activitybar">
         <div class="activity-icon active" title="Explorer">📁</div>
       </div>
       
-      <div class="sidebar">
+      <div class="sidebar" id="sidebar">
         <div class="sidebar-header">
           Explorer
           <a href="${baseUrl}${currentPath ? '/' + currentPath : ''}/__download__.zip" class="download-all-btn" title="Download all as ZIP">📥</a>
@@ -440,12 +600,39 @@ ${fileListItems}
       <span class="statusbar-item">📡 Connected</span>
       <span class="statusbar-item">${sortedEntries.filter(e => !e.isDirectory).length} files</span>
     </div>
+    
+    <button class="mobile-menu-toggle" id="mobileMenuToggle" aria-label="Toggle file explorer">
+      📁
+    </button>
   </div>
   
   <script>
     const baseUrl = '${baseUrl}';
     const currentPath = '${escapeHtml(currentPath)}';
     let activeFile = null;
+    
+    // Mobile menu toggle
+    const mobileMenuToggle = document.getElementById('mobileMenuToggle');
+    const sidebar = document.getElementById('sidebar');
+    const mobileOverlay = document.getElementById('mobileOverlay');
+    
+    function toggleMobileMenu() {
+      sidebar.classList.toggle('open');
+      mobileOverlay.classList.toggle('open');
+    }
+    
+    function closeMobileMenu() {
+      sidebar.classList.remove('open');
+      mobileOverlay.classList.remove('open');
+    }
+    
+    if (mobileMenuToggle) {
+      mobileMenuToggle.addEventListener('click', toggleMobileMenu);
+    }
+    
+    if (mobileOverlay) {
+      mobileOverlay.addEventListener('click', closeMobileMenu);
+    }
     
     // File data for preview decisions
     const files = ${JSON.stringify(sortedEntries.map(e => ({
@@ -493,6 +680,7 @@ ${fileListItems}
         }
         
         e.preventDefault();
+        closeMobileMenu();
         
         // Update active state
         document.querySelectorAll('.tree-item').forEach(i => i.classList.remove('active'));

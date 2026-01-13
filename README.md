@@ -20,16 +20,16 @@ That's it. You get a URL, share it, and people can browse and download your file
 
 | Feature | Description |
 |---------|-------------|
-| 🚀 **Instant sharing** | Get a public URL in seconds |
-| 📁 **No upload** | Files stream directly from your machine |
-| 🎨 **VS Code-style UI** | Beautiful dark theme file browser |
-| 👁️ **File preview** | View text, code, and images in-browser |
-| 📥 **ZIP download** | Download entire directories with one click |
-| 🔒 **Password protection** | Secure your share with a password |
-| 📱 **QR code** | Easy mobile sharing with terminal QR code |
-| 📊 **Live stats** | View count and bandwidth in real-time |
-| ⏱️ **Custom duration** | Sessions from 1-120 minutes |
-| 🚫 **Exclude files** | Skip .git, node_modules, etc. |
+| **Instant sharing** | Get a public URL in seconds |
+| **No upload** | Files stream directly from your machine |
+| **VS Code-style UI** | Beautiful dark theme file browser |
+| **File preview** | View text, code, and images in-browser |
+| **ZIP download** | Download entire directories with one click |
+| **Password protection** | Secure your share with a password |
+| **QR code** | Easy mobile sharing with terminal QR code (shown by default) |
+| **Live stats** | View count and bandwidth in real-time |
+| **Custom duration** | Sessions from 1-120 minutes |
+| **Exclude files** | Skip .git, node_modules, etc. |
 
 ## Installation
 
@@ -61,9 +61,9 @@ fwdcast /path/to/folder
 fwdcast -p mysecretpassword
 ```
 
-### Show QR code for mobile
+### Hide QR code (shown by default)
 ```bash
-fwdcast -q
+fwdcast --no-qr
 ```
 
 ### Custom session duration (60 minutes)
@@ -78,7 +78,7 @@ fwdcast -e .git node_modules dist
 
 ### Combine options
 ```bash
-fwdcast ~/Documents -p secret123 -d 60 -q
+fwdcast ~/Documents -p secret123 -d 60
 ```
 
 ## CLI Options
@@ -87,7 +87,8 @@ fwdcast ~/Documents -p secret123 -d 60 -q
 |--------|-------------|---------|
 | `-p, --password <pass>` | Require password to access | None |
 | `-d, --duration <mins>` | Session duration (1-120) | 30 |
-| `-q, --qr` | Show QR code in terminal | false |
+| `-q, --qr` | Show QR code in terminal | true |
+| `--no-qr` | Hide QR code | false |
 | `-e, --exclude <patterns>` | Exclude files/folders | See below |
 | `-r, --relay <url>` | Custom relay server | Public relay |
 
