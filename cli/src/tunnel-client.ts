@@ -261,7 +261,8 @@ export class TunnelClient {
   private sendRegisterMessage(): void {
     const message = createRegisterMessage(
       this.config.basePath,
-      this.config.expiresAt
+      this.config.expiresAt,
+      this.config.password
     );
     this.send(message);
   }

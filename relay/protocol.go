@@ -34,6 +34,7 @@ type RegisterMessage struct {
 	Type      MessageType `json:"type"`
 	Path      string      `json:"path"`
 	ExpiresAt int64       `json:"expiresAt"` // Unix timestamp
+	Password  string      `json:"password,omitempty"` // Optional password protection
 }
 
 // RegisteredMessage - Relay → CLI: Registration response

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -93,8 +94,8 @@ func (h *Handlers) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// Calculate expiry time from the provided timestamp
 	expiresAt := time.Unix(registerMsg.ExpiresAt, 0)
 
-	// Create a new session
-	session, err := h.store.CreateSession(conn, expiresAt)
+	// Create a new session with password if provided
+	session, err := h.store.CreateSessionWithPassword(conn, expiresAt, registerMsg.Password)
 	if err != nil {
 		log.Printf("Failed to create session: %v", err)
 		conn.Close()
@@ -169,6 +170,7 @@ func (h *Handlers) handleCLIMessages(session *Session) {
 // HandleViewerRequest handles HTTP requests from viewers
 // - Parses session ID from URL path
 // - Looks up session, returns 404 if not found
+// - Checks password authentication if required
 // - Checks viewer limit, returns 503 if exceeded
 // - Forwards request to CLI via tunnel
 func (h *Handlers) HandleViewerRequest(w http.ResponseWriter, r *http.Request) {
@@ -199,6 +201,24 @@ func (h *Handlers) HandleViewerRequest(w http.ResponseWriter, r *http.Request) {
 		h.store.RemoveSession(sessionID)
 		h.send404(w, "Session has expired")
 		return
+	}
+
+	// Check password authentication if session is password protected
+	if session.Password != "" {
+		// Check for __auth__ path - serve login page or handle auth
+		if strings.HasPrefix(resourcePath, "/__auth__") {
+			h.handleAuth(w, r, session, resourcePath)
+			return
+		}
+
+		// Check for auth cookie
+		cookie, err := r.Cookie("fwdcast_auth_" + sessionID)
+		if err != nil || cookie.Value != session.Password {
+			// Redirect to auth page
+			redirectURL := fmt.Sprintf("/%s/__auth__?redirect=%s", sessionID, r.URL.Path)
+			http.Redirect(w, r, redirectURL, http.StatusFound)
+			return
+		}
 	}
 
 	// Check viewer limit
@@ -361,6 +381,159 @@ func (h *Handlers) send504(w http.ResponseWriter, message string) {
   </div>
 </body>
 </html>`
+	w.Write([]byte(html))
+}
+
+// handleAuth handles password authentication for protected sessions
+func (h *Handlers) handleAuth(w http.ResponseWriter, r *http.Request, session *Session, resourcePath string) {
+	redirect := r.URL.Query().Get("redirect")
+	if redirect == "" {
+		redirect = "/" + session.ID + "/"
+	}
+
+	// Handle POST - verify password
+	if r.Method == "POST" {
+		r.ParseForm()
+		password := r.FormValue("password")
+
+		if password == session.Password {
+			// Set auth cookie
+			http.SetCookie(w, &http.Cookie{
+				Name:     "fwdcast_auth_" + session.ID,
+				Value:    password,
+				Path:     "/" + session.ID,
+				MaxAge:   3600, // 1 hour
+				HttpOnly: true,
+				SameSite: http.SameSiteStrictMode,
+			})
+			http.Redirect(w, r, redirect, http.StatusFound)
+			return
+		}
+
+		// Wrong password - show error
+		h.sendAuthPage(w, session.ID, redirect, true)
+		return
+	}
+
+	// GET - show login page
+	h.sendAuthPage(w, session.ID, redirect, false)
+}
+
+// sendAuthPage renders the password authentication page
+func (h *Handlers) sendAuthPage(w http.ResponseWriter, sessionID, redirect string, showError bool) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+
+	errorHTML := ""
+	if showError {
+		errorHTML = `<div class="error">Incorrect password. Please try again.</div>`
+	}
+
+	html := fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+  <title>Password Required - fwdcast</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    * { box-sizing: border-box; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+      background: #1e1e1e; 
+      margin: 0; 
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .container { 
+      max-width: 400px; 
+      width: 100%%;
+      background: #2d2d2d; 
+      padding: 40px; 
+      border-radius: 8px; 
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      text-align: center;
+    }
+    .lock-icon {
+      font-size: 48px;
+      margin-bottom: 20px;
+    }
+    h1 { 
+      color: #cccccc; 
+      margin: 0 0 8px 0;
+      font-size: 24px;
+      font-weight: 500;
+    }
+    .subtitle {
+      color: #858585;
+      font-size: 14px;
+      margin-bottom: 24px;
+    }
+    .error {
+      background: rgba(231, 76, 60, 0.2);
+      border: 1px solid #e74c3c;
+      color: #e74c3c;
+      padding: 10px 16px;
+      border-radius: 4px;
+      margin-bottom: 20px;
+      font-size: 14px;
+    }
+    form { text-align: left; }
+    label {
+      display: block;
+      color: #858585;
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+    input[type="password"] {
+      width: 100%%;
+      padding: 12px;
+      border: 1px solid #3c3c3c;
+      border-radius: 4px;
+      background: #1e1e1e;
+      color: #cccccc;
+      font-size: 16px;
+      margin-bottom: 20px;
+    }
+    input[type="password"]:focus {
+      outline: none;
+      border-color: #007acc;
+    }
+    button {
+      width: 100%%;
+      padding: 12px;
+      background: #007acc;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    button:hover {
+      background: #005a9e;
+    }
+    button:active {
+      transform: scale(0.98);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="lock-icon">🔒</div>
+    <h1>Password Required</h1>
+    <p class="subtitle">This share is password protected</p>
+    %s
+    <form method="POST" action="/%s/__auth__?redirect=%s">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" placeholder="Enter password" autofocus required>
+      <button type="submit">Access Files</button>
+    </form>
+  </div>
+</body>
+</html>`, errorHTML, sessionID, redirect)
+
 	w.Write([]byte(html))
 }
 

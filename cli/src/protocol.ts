@@ -20,6 +20,7 @@ export interface RegisterMessage {
   type: 'register';
   path: string;
   expiresAt: number; // Unix timestamp
+  password?: string; // Optional password protection
 }
 
 /**
@@ -220,8 +221,12 @@ export function deserializeMessage(data: string): ProtocolMessage | null {
 // Message Factories
 // ============================================================================
 
-export function createRegisterMessage(path: string, expiresAt: number): RegisterMessage {
-  return { type: 'register', path, expiresAt };
+export function createRegisterMessage(path: string, expiresAt: number, password?: string): RegisterMessage {
+  const msg: RegisterMessage = { type: 'register', path, expiresAt };
+  if (password) {
+    msg.password = password;
+  }
+  return msg;
 }
 
 export function createRegisteredMessage(sessionId: string, url: string): RegisteredMessage {

@@ -31,6 +31,7 @@ type Session struct {
 	ExpiresAt   time.Time
 	ViewerCount int
 	MaxViewers  int
+	Password    string // Optional password for authentication
 	PendingReqs map[string]*PendingRequest
 	mu          sync.Mutex
 }
@@ -157,6 +158,11 @@ func generateSessionID() (string, error) {
 // CreateSession creates a new session for a CLI connection
 // Requirements: 2.1, 2.2
 func (s *SessionStore) CreateSession(ws *websocket.Conn, expiresAt time.Time) (*Session, error) {
+	return s.CreateSessionWithPassword(ws, expiresAt, "")
+}
+
+// CreateSessionWithPassword creates a new session with optional password protection
+func (s *SessionStore) CreateSessionWithPassword(ws *websocket.Conn, expiresAt time.Time, password string) (*Session, error) {
 	id, err := generateSessionID()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate session ID: %w", err)
@@ -168,6 +174,7 @@ func (s *SessionStore) CreateSession(ws *websocket.Conn, expiresAt time.Time) (*
 		ExpiresAt:   expiresAt,
 		ViewerCount: 0,
 		MaxViewers:  3,
+		Password:    password,
 		PendingReqs: make(map[string]*PendingRequest),
 	}
 
