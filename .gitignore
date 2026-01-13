@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+cli/node_modules/
+
+# Build outputs
+cli/dist/
+relay/fwdcast-relay
+relay/relay
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+.env
+.env.local
+
+# Kiro specs (development only)
+.kiro/
+
+# Test coverage
+coverage/

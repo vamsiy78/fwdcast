@@ -1,0 +1,26 @@
+# Ignore compiled binaries
+relay
+fwdcast-relay
+
+# Ignore test files
+*_test.go
+
+# Ignore IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Ignore git
+.git/
+.gitignore
+
+# Ignore documentation
+*.md
+README*
+LICENSE
+
+# Ignore Docker files (not needed in build context)
+Dockerfile
+.dockerignore
+docker-compose*.yml
