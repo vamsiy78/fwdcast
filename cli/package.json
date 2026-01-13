@@ -1,6 +1,6 @@
 {
   "name": "fwdcast",
-  "version": "1.2.7",
+  "version": "1.2.9",
   "description": "Temporary file sharing - stream local files as a public website without uploading",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -20,7 +20,8 @@
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "test": "vitest --run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "release": "npm version patch && npm publish"
   },
   "keywords": [
     "file-sharing",

@@ -91,6 +91,8 @@ func (h *Handlers) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("Register message received: path=%s, expiresAt=%d, password=%s", registerMsg.Path, registerMsg.ExpiresAt, registerMsg.Password)
+
 	// Calculate expiry time from the provided timestamp
 	expiresAt := time.Unix(registerMsg.ExpiresAt, 0)
 
@@ -213,12 +215,18 @@ func (h *Handlers) HandleViewerRequest(w http.ResponseWriter, r *http.Request) {
 
 		// Check for auth cookie
 		cookie, err := r.Cookie("fwdcast_auth_" + sessionID)
+		log.Printf("Cookie check: session=%s, cookie=%v, err=%v", sessionID, cookie, err)
 		if err != nil || cookie.Value != session.Password {
-			// Redirect to auth page
-			redirectURL := fmt.Sprintf("/%s/__auth__?redirect=%s", sessionID, r.URL.Path)
+			// Redirect to auth page - use the current path as redirect target
+			currentPath := "/" + sessionID + "/"
+			if resourcePath != "/" {
+				currentPath = "/" + sessionID + resourcePath
+			}
+			redirectURL := fmt.Sprintf("/%s/__auth__?redirect=%s", sessionID, currentPath)
 			http.Redirect(w, r, redirectURL, http.StatusFound)
 			return
 		}
+		log.Printf("Cookie valid, proceeding to serve files")
 	}
 
 	// Check viewer limit
@@ -387,14 +395,17 @@ func (h *Handlers) send504(w http.ResponseWriter, message string) {
 // handleAuth handles password authentication for protected sessions
 func (h *Handlers) handleAuth(w http.ResponseWriter, r *http.Request, session *Session, resourcePath string) {
 	redirect := r.URL.Query().Get("redirect")
-	if redirect == "" {
+	if redirect == "" || redirect == "/" + session.ID + "/__auth__" {
 		redirect = "/" + session.ID + "/"
 	}
+
+	log.Printf("Auth request: method=%s, session=%s, redirect=%s, hasPassword=%v", r.Method, session.ID, redirect, session.Password != "")
 
 	// Handle POST - verify password
 	if r.Method == "POST" {
 		r.ParseForm()
 		password := r.FormValue("password")
+		log.Printf("Password attempt: entered=%s, expected=%s, match=%v", password, session.Password, password == session.Password)
 
 		if password == session.Password {
 			// Set auth cookie
@@ -404,13 +415,16 @@ func (h *Handlers) handleAuth(w http.ResponseWriter, r *http.Request, session *S
 				Path:     "/" + session.ID,
 				MaxAge:   3600, // 1 hour
 				HttpOnly: true,
-				SameSite: http.SameSiteStrictMode,
+				Secure:   true,
+				SameSite: http.SameSiteLaxMode,
 			})
+			log.Printf("Password correct, redirecting to %s", redirect)
 			http.Redirect(w, r, redirect, http.StatusFound)
 			return
 		}
 
 		// Wrong password - show error
+		log.Printf("Password incorrect")
 		h.sendAuthPage(w, session.ID, redirect, true)
 		return
 	}

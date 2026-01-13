@@ -329,25 +329,6 @@ export class TunnelClient {
     // Normalize the request path
     const normalizedPath = this.normalizePath(requestPath);
     
-    // Check for password authentication
-    if (this.config.password) {
-      // Check for auth token in query string
-      const authMatch = requestPath.match(/[?&]auth=([^&]+)/);
-      const authToken = authMatch ? authMatch[1] : null;
-      
-      // Handle login form submission
-      if (normalizedPath === '__auth__' || normalizedPath.endsWith('/__auth__')) {
-        await this.handleAuthRequest(id, requestPath);
-        return;
-      }
-      
-      // Check if authenticated
-      if (!authToken || !this.authenticatedTokens.has(authToken)) {
-        await this.serveLoginPage(id, normalizedPath);
-        return;
-      }
-    }
-    
     // Check for special ZIP download request
     if (normalizedPath === '__download__.zip' || normalizedPath.endsWith('/__download__.zip')) {
       const dirPath = normalizedPath.replace('/__download__.zip', '').replace('__download__.zip', '');
