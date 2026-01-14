@@ -2,7 +2,7 @@
 
 **Temporary file sharing** - Stream local files as a public website without uploading anything.
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
+![License](https://img.shields.io/badge/license-Apache%20License%202.0-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-green.svg)
 ![npm](https://img.shields.io/npm/v/fwdcast.svg)
 
